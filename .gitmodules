@@ -1,0 +1,6 @@
+[submodule "bitsmoe/evaluation/lm_eval"]
+	path = bitsmoe/evaluation/lm_eval
+	url = https://github.com/EleutherAI/lm-evaluation-harness.git
+[submodule "bitsmoe/algorithms/cpp/cutlass"]
+	path = bitsmoe/algorithms/cpp/cutlass
+	url = https://github.com/NVIDIA/cutlass.git

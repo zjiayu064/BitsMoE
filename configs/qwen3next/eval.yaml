@@ -1,0 +1,32 @@
+lm_eval:
+  enable: false
+  model: hf
+  model_args:
+    pretrained: zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit
+    dtype: auto
+    trust_remote_code: true
+  apply_chat_template: false
+  batch_size: auto
+  tasks:
+    - mmlu
+    - hellaswag
+    - winogrande
+    - openbookqa
+    - mathqa
+  extra_args:
+    confirm_run_unsafe_code: true
+
+
+ppl:
+  enable: true
+  model_name_or_path: zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit
+  use_fa2: true
+  trust_remote_code: true
+  seq_len: 2048
+  max_samples: 512
+  stride: 512
+  dtype: float16
+
+
+runtime:
+  seed: 42

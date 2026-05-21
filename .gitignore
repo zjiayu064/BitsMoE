@@ -1,0 +1,14 @@
+hf_cache/
+checkpoints/
+__pycache__/
+*.pyc
+.codex
+data/
+logs/
+*.egg-info
+*.so
+*.log
+.tmp/
+CLAUDE.md
+.venv/
+.pytest_cache/

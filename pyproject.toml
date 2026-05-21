@@ -1,0 +1,57 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "torch"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bitsmoe"
+version = "0.1.0"
+description = "BitsMoE: Efficient Spectral Energy-guided Bit Allocation for MoE LLM Quantization"
+authors = [
+    { name = "Jiayu Zhao", email = "jiayz@mail.ustc.edu.cn" }
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+
+dependencies = [
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "torchaudio==2.8.0",
+    "transformers==4.57.3",
+    "accelerate==1.10.1",
+    "packaging>=24.0",
+    "ninja>=1.11.0",
+    "psutil>=5.9.0",
+    "numpy>=1.22",
+    "datasets==3.6.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.66.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "isort"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[project.scripts]
+bitsmoe = "bitsmoe.cli:main"
