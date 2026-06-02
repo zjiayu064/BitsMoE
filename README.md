@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-    <a href=""><img src="https://img.shields.io/badge/arXiv-TBD-b31b1b.svg" alt="Paper"></a>
+    <a href="https://arxiv.org/abs/2606.00079"><img src="https://img.shields.io/badge/arXiv-2606.00079-b31b1b.svg" alt="Paper"></a>
     <a href="https://huggingface.co/zjiayu064"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Models-yellow" alt="Models"></a>
     <a href="https://arxiv.org/licenses/nonexclusive-distrib/1.0/license.html"><img src="https://img.shields.io/badge/Paper%20License-arXiv%20non--exclusive%201.0-lightgrey.svg" alt="Paper License"></a>
     <a href="https://opensource.org/license/mit/"><img src="https://img.shields.io/badge/Code%20License-MIT-blue.svg" alt="Code License"></a>
@@ -154,6 +154,19 @@ Status: **Coming soon**.
 
 ## Citation
 
+## Citation
+
+If you find our work useful, please consider citing:
+
 ```bibtex
+@misc{zhao2026bitsmoe,
+      title={{BitsMoE}: Efficient Spectral Energy-Guided Bit Allocation for {MoE} {LLM} Quantization}, 
+      author={Jiayu Zhao and Zihan Teng and Minhao Fan and Tianrui Ma and Wentao Ren and Song Chen and Weichen Liu},
+      year={2026},
+      eprint={2606.00079},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2606.00079}
+}
 
 ```
