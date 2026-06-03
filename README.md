@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <b><a href="#overview">🔍 Overview</a></b> •
   <b><a href="#preparation">🧩 Preparation</a></b> •
   <b><a href="#environment">🛠️ Environment</a></b> •
   <b><a href="#models">📦 Models</a></b> •
@@ -20,6 +21,23 @@
 </p>
 
 ---
+
+<a id="overview"></a>
+
+## 🔍 Overview
+
+**BitsMoE** is a spectral-energy-guided bit-allocation framework for ultra-low-bit quantization of Mixture-of-Experts (MoE) LLMs. It decomposes each MoE layer via SVD into a **shared basis** (kept in full precision to preserve cross-expert structure) and **expert-specific spectral factors** (treated as fine-grained quantization units). Bit-widths are assigned by solving an **integer linear program (ILP)** that minimizes an activation-aware reconstruction surrogate under a fixed bit budget.
+
+<p align="center">
+  <img src="assets/BitsMoE.png" alt="BitsMoE Framework" width="100%">
+</p>
+<p align="center"><i>Figure 1. Overview of the BitsMoE pipeline: shared-basis SVD decomposition, ILP-based mixed-precision quantization, and efficient inference.</i></p>
+
+### ✨ Key Contributions
+
+- **🧠 Capacity-preserving spectral quantization.** A shared spectral parameterization for MoE layers that preserves cross-expert structure while exposing expert-specific spectral components as fine-grained quantization units.
+- **🎯 Importance-aligned bit allocation under a fixed budget.** An ILP-based formulation that jointly accounts for spectral energy, activation importance, and bit-dependent quantization distortion.
+- **⚡ Accurate and efficient MoE deployment.** An end-to-end framework integrating shared-basis decomposition, adaptive bit allocation, and efficient inference — delivering higher downstream accuracy and inference efficiency under ultra-low-bit settings across multiple MoE LLMs.
 
 <a id="preparation"></a>
 
@@ -151,8 +169,6 @@ Status: **Coming soon**.
 - Paper (arXiv): arXiv.org perpetual, non-exclusive license 1.0
 
 <a id="citation"></a>
-
-## Citation
 
 ## Citation
 
