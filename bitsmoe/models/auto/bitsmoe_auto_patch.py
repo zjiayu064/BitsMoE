@@ -39,12 +39,6 @@ def _progress(iterable, desc: str, total: int = None):
     return iterable
 
 
-_SUPER_EXPERTS_BY_MODEL: Dict[str, Dict[int, List[int]]] = {
-    "qwen3moe": {1: [68], 2: [92], 3: [82]},
-    "deepseekv2": {2: [54], 3: [38]},
-    "qwen3next": {10: [288, 401], 21: [251], 25: [381], 26: [264], 35: [38, 69, 303]},
-}
-
 _BITSMOE_BLOCK_BY_MODEL = {
     "qwen3moe": BitsMoE_Qwen3MoeSparseMoeBlock,
     "deepseekv2": BitsMoE_DeepSeekSparseMoeBlock,
@@ -125,24 +119,6 @@ def _resolve_layer_expert_intermediate_size(config, source_experts: List[Optiona
         "Failed to infer MoE expert intermediate_size: no expert template found and "
         "config has neither `moe_intermediate_size` nor `intermediate_size`."
     )
-
-
-def _build_dense_expert_fallback(source_moe, source_experts: List[Optional[Any]], config, intermediate_size: int):
-    for expert_module in source_experts:
-        if expert_module is not None:
-            return copy.deepcopy(expert_module)
-
-    shared_expert = getattr(source_moe, "shared_expert", None)
-    if shared_expert is None:
-        raise RuntimeError(
-            "Cannot build dense super expert: no source expert template and no shared_expert fallback."
-        )
-
-    shared_cls = shared_expert.__class__
-    try:
-        return shared_cls(config, intermediate_size=intermediate_size)
-    except TypeError:
-        return shared_cls(config)
 
 
 def _make_qwen3next_fast_sparse_moe_init(module, mlp_cls):
@@ -382,53 +358,6 @@ def _env_flag(name: str, default: bool) -> bool:
     return v not in {"0", "false", "no", "off"}
 
 
-def _maybe_prepare_bitsmoe_runtime(model, bitsmoe_model_type: str) -> None:
-    if not _env_flag("BITSMOE_PREPARE_RUNTIME", True):
-        return
-
-    # Keep backward compatibility with older qwen3moe-specific switches.
-    if bitsmoe_model_type == "qwen3moe" and not _env_flag("BITSMOE_QWEN3MOE_PREPARE_RUNTIME", True):
-        return
-
-    warmup = _env_flag("BITSMOE_PREPARE_WARMUP", True)
-    if bitsmoe_model_type == "qwen3moe":
-        warmup = _env_flag("BITSMOE_QWEN3MOE_PREPARE_WARMUP", warmup)
-    prepared = 0
-    failed = 0
-
-    layers = getattr(getattr(model, "model", None), "layers", None)
-    if layers is None:
-        return
-
-    for layer in layers:
-        moe_attr = _get_moe_attr_name(layer)
-        if moe_attr is None:
-            continue
-        block = getattr(layer, moe_attr, None)
-        prepare_fn = getattr(block, "prepare_runtime_fastpath", None)
-        if not callable(prepare_fn):
-            continue
-        try:
-            prepare_fn(warmup=warmup)
-            prepared += 1
-        except Exception as exc:  # best-effort, don't block model load
-            failed += 1
-            logger.warning(
-                "BitsMoE runtime prepare failed: model_type=%s layer_attr=%s err=%s",
-                bitsmoe_model_type,
-                moe_attr,
-                exc,
-            )
-
-    logger.info(
-        "BitsMoE runtime prepare done: model_type=%s prepared=%d failed=%d warmup=%s",
-        bitsmoe_model_type,
-        prepared,
-        failed,
-        warmup,
-    )
-
-
 def _patch_bitsmoe_inplace(model, bitsmoe_model_type: str) -> None:
     if bitsmoe_model_type not in _BITSMOE_BLOCK_BY_MODEL:
         raise ValueError(
@@ -441,7 +370,6 @@ def _patch_bitsmoe_inplace(model, bitsmoe_model_type: str) -> None:
 
     block_cls = _BITSMOE_BLOCK_BY_MODEL[bitsmoe_model_type]
     mlp_cls = _BITSMOE_MLP_BY_MODEL[bitsmoe_model_type]
-    super_map = _SUPER_EXPERTS_BY_MODEL.get(bitsmoe_model_type, {})
     packed_expert_total = 0
 
     num_layers = len(model.model.layers)
@@ -461,35 +389,18 @@ def _patch_bitsmoe_inplace(model, bitsmoe_model_type: str) -> None:
             model.config,
             source_experts,
         )
-        super_experts = sorted(set(int(x) for x in super_map.get(layer_idx, [])))
-        super_set = set(super_experts)
         defer_runtime_buffer_init = bitsmoe_model_type == "qwen3next"
 
         bitsmoe_block = block_cls(
             config=model.config,
             layer_idx=layer_idx,
             source_block=source_moe,
-            super_experts=super_experts,
             copy_source_experts=False,
         )
 
         for expert_idx, expert_module in enumerate(source_experts):
-            if expert_idx in super_set:
-                dense_expert = (
-                    copy.deepcopy(expert_module)
-                    if expert_module is not None
-                    else _build_dense_expert_fallback(
-                        source_moe=source_moe,
-                        source_experts=source_experts,
-                        config=model.config,
-                        intermediate_size=expert_intermediate_size,
-                    )
-                )
-                bitsmoe_block.set_expert(expert_idx, dense_expert, packed=False)
-                continue
-
             if expert_module is None and not defer_runtime_buffer_init:
-                bitsmoe_block.set_expert(expert_idx, None, packed=False)
+                bitsmoe_block.set_expert(expert_idx, None)
                 continue
 
             packed_kwargs = dict(
@@ -499,7 +410,7 @@ def _patch_bitsmoe_inplace(model, bitsmoe_model_type: str) -> None:
             if defer_runtime_buffer_init:
                 packed_kwargs["defer_runtime_buffer_init"] = True
             packed_mlp = mlp_cls(**packed_kwargs)
-            bitsmoe_block.set_expert(expert_idx, packed_mlp, packed=True)
+            bitsmoe_block.set_expert(expert_idx, packed_mlp)
             packed_expert_total += 1
 
         setattr(layer, moe_attr, bitsmoe_block)
@@ -690,7 +601,6 @@ def _bitsmoe_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs
             model = patched_cls.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
         finally:
             finalize_bitsmoe_load_progress()
-    _maybe_prepare_bitsmoe_runtime(model, bitsmoe_model_type)
     logger.info("BitsMoE model loaded")
     return model
 

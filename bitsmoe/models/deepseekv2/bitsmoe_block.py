@@ -1,5 +1,5 @@
 import copy
-from typing import List, Optional
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -29,7 +29,6 @@ class BitsMoE_DeepSeekSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
         config,
         layer_idx: int,
         source_block: Optional[nn.Module] = None,
-        super_experts: Optional[List[int]] = None,
         copy_source_experts: bool = True,
     ):
         super().__init__()
@@ -61,10 +60,7 @@ class BitsMoE_DeepSeekSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
         if hasattr(source_block, "ep_rank"):
             self.ep_rank = int(source_block.ep_rank)
 
-        self._init_bitsmoe_common_state(
-            super_experts=super_experts,
-            track_super_projected_weights=True,
-        )
+        self._init_bitsmoe_common_state()
 
     def forward(self, hidden_states):
         identity = hidden_states
@@ -77,30 +73,14 @@ class BitsMoE_DeepSeekSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
 
         topk_idx = topk_idx.reshape(-1, topk_idx.shape[-1])
         topk_weight_fp32 = topk_weight.reshape(-1, topk_weight.shape[-1]).to(torch.float32)
-        topk_weight_hidden = topk_weight_fp32.to(hidden_states.dtype)
-
-        if self.shared_vh_gate_proj.numel() == 0 or self.shared_vh_up_proj.numel() == 0:
-            raise RuntimeError(
-                f"Layer {self.layer_idx} missing shared_vh basis for packed routed experts."
-            )
-        h_gate_proj = hidden_states @ self.shared_vh_gate_proj.T
-        h_up_proj = hidden_states @ self.shared_vh_up_proj.T
+        h_gate_proj = self._shared_basis_linear(hidden_states, "shared_vh_gate_proj")
+        h_up_proj = self._shared_basis_linear(hidden_states, "shared_vh_up_proj")
 
         final_hidden_states = torch.zeros_like(hidden_states)
 
         flat_selected_experts = topk_idx.reshape(-1)
-        flat_route_weights_hidden = topk_weight_hidden.reshape(-1)
         flat_route_weights_fp32 = topk_weight_fp32.reshape(-1)
         flat_token_ids = self._get_flat_token_ids(token_count, hidden_states.device)
-
-        if self._super_expert_items:
-            self._run_super_experts(
-                hidden_states=hidden_states,
-                final_hidden_states=final_hidden_states,
-                flat_selected_experts=flat_selected_experts,
-                flat_token_ids=flat_token_ids,
-                flat_route_weights_hidden=flat_route_weights_hidden,
-            )
 
         packed_route = self._build_packed_routing(
             flat_selected_experts=flat_selected_experts,

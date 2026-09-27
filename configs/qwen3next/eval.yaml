@@ -2,8 +2,8 @@ lm_eval:
   enable: false
   model: hf
   model_args:
-    pretrained: zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit
     dtype: auto
+    pretrained: zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit
     trust_remote_code: true
   apply_chat_template: false
   batch_size: auto
@@ -25,7 +25,6 @@ ppl:
   seq_len: 2048
   max_samples: 512
   stride: 512
-  dtype: float16
 
 
 runtime:

@@ -313,8 +313,24 @@ class BitsMoE_BaseMoeMLP(nn.Module):
             ok = self._load_one_mtype(state_dict, prefix, mtype, device=device) and ok
 
         self.is_bitsmoe_packed = ok
-        self.skip_expert = not ok
+        self.skip_expert = not ok and self._has_zero_projection()
         return ok
+
+    def _has_zero_projection(self) -> bool:
+        for tag in self._MTYPE_TO_TAG.values():
+            payload = getattr(self, f"{tag}_payload_buffer", None)
+            segments = getattr(self, f"{tag}_segments", None)
+            original_rank = getattr(self, f"{tag}_original_rank", None)
+            if not all(isinstance(t, torch.Tensor) for t in (payload, segments, original_rank)):
+                continue
+            if (
+                payload.numel() == 0
+                and segments.numel() == 0
+                and original_rank.numel() == 1
+                and int(original_rank.item()) > 0
+            ):
+                return True
+        return False
 
     def _load_from_state_dict(
         self,
@@ -342,17 +358,17 @@ class BitsMoE_BaseMoeMLP(nn.Module):
             consumed_keys.append(full_key)
 
             current = getattr(self, local_key, None)
-            if (
+            if assign_to_params_buffers:
+                self._register_or_replace_buffer(local_key, tensor.detach())
+            elif (
                 isinstance(current, torch.Tensor)
                 and current.shape == tensor.shape
                 and current.dtype == tensor.dtype
+                and current.device == tensor.device
             ):
-                continue
-
-            # assign=True path can bind checkpoint tensor directly and avoid
-            # allocating huge empty placeholders for every packed buffer.
-            replacement = tensor.detach() if assign_to_params_buffers else torch.empty_like(tensor)
-            self._register_or_replace_buffer(local_key, replacement)
+                current.copy_(tensor)
+            else:
+                self._register_or_replace_buffer(local_key, tensor.detach().clone())
 
         if has_local_tensor and not self._load_progress_marked:
             self._load_progress_marked = True
@@ -380,7 +396,7 @@ class BitsMoE_BaseMoeMLP(nn.Module):
             and getattr(self, f"{tag}_payload_buffer").numel() > 0
             for tag in self._MTYPE_TO_TAG.values()
         )
-        self.skip_expert = not self.is_bitsmoe_packed
+        self.skip_expert = not self.is_bitsmoe_packed and self._has_zero_projection()
 
     # Backward-compatible entrypoint used by old loader paths.
     def load_quantized_weight_from_state(

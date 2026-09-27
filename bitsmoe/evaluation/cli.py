@@ -165,7 +165,6 @@ def main():
             seq_len=ppl_cfg["seq_len"],
             max_samples=ppl_cfg["max_samples"],
             stride=ppl_cfg["stride"],
-            dtype=ppl_cfg["dtype"],
             model_args=model_args
         )
 

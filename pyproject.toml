@@ -2,26 +2,27 @@
 requires = [
     "setuptools>=61.0",
     "wheel",
-    "torch"
+    "torch==2.8.0"
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "bitsmoe"
 version = "0.1.0"
-description = "BitsMoE: Efficient Spectral Energy-guided Bit Allocation for MoE LLM Quantization"
+description = "BitsMoE: Cost-Aware Bit Allocation in Spectral Space for MoE LLM Quantization"
 authors = [
     { name = "Jiayu Zhao", email = "jiayz@mail.ustc.edu.cn" }
 ]
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.8"
+requires-python = ">=3.10,<3.14"
 
 dependencies = [
     "torch==2.8.0",
     "torchvision==0.23.0",
     "torchaudio==2.8.0",
     "transformers==4.57.3",
+    "vllm==0.11.0",
     "accelerate==1.10.1",
     "packaging>=24.0",
     "ninja>=1.11.0",

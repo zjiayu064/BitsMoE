@@ -36,19 +36,22 @@ uv pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
 # 2) Build helpers
 uv pip install packaging ninja psutil
 
-# 3) CUDA runtime-related deps (keep no-build-isolation for compatibility)
+# 3) Marlin runtime
+uv pip install vllm==0.11.0
+
+# 4) CUDA runtime-related deps (keep no-build-isolation for compatibility)
 uv pip install flash-attn --no-build-isolation
 uv pip install flash-linear-attention --no-build-isolation
 uv pip install --no-binary=causal-conv1d \
   "git+https://github.com/Dao-AILab/causal-conv1d.git" \
   --no-build-isolation
 
-# 4) lm_eval submodule
+# 5) lm_eval submodule
 pushd bitsmoe/evaluation/lm_eval >/dev/null
 uv pip install -e .
 popd >/dev/null
 
-# 5) BitsMoE-arxiv itself
+# 6) BitsMoE-arxiv itself
 uv pip install -e . --no-build-isolation
 
 echo "Environment ready. Activate with: conda activate ${ENV_NAME}"

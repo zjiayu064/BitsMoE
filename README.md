@@ -26,7 +26,7 @@
 
 ## 🔍 Overview
 
-**BitsMoE** is a spectral-energy-guided bit-allocation framework for ultra-low-bit quantization of Mixture-of-Experts (MoE) LLMs. It decomposes each MoE layer via SVD into a **shared basis** (kept in full precision to preserve cross-expert structure) and **expert-specific spectral factors** (treated as fine-grained quantization units). Bit-widths are assigned by solving an **integer linear program (ILP)** that minimizes an activation-aware reconstruction surrogate under a fixed bit budget.
+**BitsMoE** is a spectral-energy-guided bit-allocation framework for ultra-low-bit quantization of Mixture-of-Experts (MoE) LLMs. It decomposes each MoE layer via SVD into a **shared basis** (stored in Marlin W8A16 format) and **expert-specific spectral factors** (treated as fine-grained quantization units). Bit-widths are assigned by solving an **integer linear program (ILP)** that minimizes an activation-aware reconstruction surrogate under a fixed bit budget.
 
 <p align="center">
   <img src="assets/BitsMoE.png" alt="BitsMoE Framework" width="100%">

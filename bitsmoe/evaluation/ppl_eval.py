@@ -282,10 +282,9 @@ def run_ppl_cli(
     seq_len: int = 2048,
     max_samples: int = 10240,
     stride: int = 512,
-    dtype: str = "float16",
     model_args: Optional[dict] = None,
 ):
-    """CLI-compatible entry for PPL evaluation."""
+    """CLI-compatible entry for FP16 PPL evaluation with automatic device placement."""
     if model_args is None:
         model_args = {}
 
@@ -295,12 +294,6 @@ def run_ppl_cli(
         model_name,
         # fix_mistral_regex=True
     )
-
-    dtype_map = {
-        "float16": torch.float16,
-        "bfloat16": torch.bfloat16,
-        "float32": torch.float32,
-    }
 
     if (
         quantization_config := model_args.get("quantization_config", None)
@@ -319,7 +312,7 @@ def run_ppl_cli(
         )
 
     model_kwargs = dict(
-        dtype=dtype_map[dtype],
+        dtype=torch.float16,
         device_map="auto",
         use_cache=False,
         trust_remote_code=trust_remote_code,

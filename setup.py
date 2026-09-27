@@ -39,8 +39,8 @@ NVCC_ARCH_FLAGS = [
     "-gencode=arch=compute_80,code=sm_80",          # A100
     "-gencode=arch=compute_86,code=sm_86",          # RTX3090
     "-gencode=arch=compute_89,code=sm_89",          # A6000 Ada
-    # "-gencode=arch=compute_90a,code=sm_90a",        # H100 HBM3
-    # "-gencode=arch=compute_90a,code=compute_90a",   # PTX fallback
+    "-gencode=arch=compute_90a,code=sm_90a",        # H100 HBM3
+    "-gencode=arch=compute_90a,code=compute_90a",   # PTX fallback
 ]
 
 COMMON_NVCC_FLAGS = [

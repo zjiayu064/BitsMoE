@@ -1,5 +1,5 @@
 import copy
-from typing import List, Optional
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -14,7 +14,6 @@ class BitsMoE_Qwen3MoeSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
         config,
         layer_idx: int,
         source_block: Optional[nn.Module] = None,
-        super_experts: Optional[List[int]] = None,
         copy_source_experts: bool = True,
     ):
         super().__init__()
@@ -31,10 +30,7 @@ class BitsMoE_Qwen3MoeSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
         # Experts are populated by the caller after init.
         self.experts = nn.ModuleList([None] * len(source_block.experts))
 
-        self._init_bitsmoe_common_state(
-            super_experts=super_experts,
-            track_super_projected_weights=True,
-        )
+        self._init_bitsmoe_common_state()
 
     def forward(self, hidden_states):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -48,34 +44,18 @@ class BitsMoE_Qwen3MoeSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
         routing_weights_fp32, selected_experts = torch.topk(routing_weights_fp32, self.top_k, dim=-1)
         if self.norm_topk_prob:
             routing_weights_fp32 /= routing_weights_fp32.sum(dim=-1, keepdim=True)
-        routing_weights = routing_weights_fp32.to(hidden_states.dtype)
-
         final_hidden_states = torch.zeros(
             (token_count, hidden_dim),
             dtype=hidden_states.dtype,
             device=hidden_states.device,
         )
 
-        if self.shared_vh_gate_proj.numel() == 0 or self.shared_vh_up_proj.numel() == 0:
-            raise RuntimeError(
-                f"Layer {self.layer_idx} missing shared_vh basis for packed routed experts."
-            )
-        h_gate_proj = hidden_states @ self.shared_vh_gate_proj.T
-        h_up_proj = hidden_states @ self.shared_vh_up_proj.T
+        h_gate_proj = self._shared_basis_linear(hidden_states, "shared_vh_gate_proj")
+        h_up_proj = self._shared_basis_linear(hidden_states, "shared_vh_up_proj")
 
         flat_selected_experts = selected_experts.reshape(-1)
-        flat_route_weights_hidden = routing_weights.reshape(-1)
-        flat_route_weights_fp32 = flat_route_weights_hidden.to(torch.float32)
+        flat_route_weights_fp32 = routing_weights_fp32.to(hidden_states.dtype).reshape(-1).float()
         flat_token_ids = self._get_flat_token_ids(token_count, hidden_states.device)
-
-        if self._super_expert_items:
-            self._run_super_experts(
-                hidden_states=hidden_states,
-                final_hidden_states=final_hidden_states,
-                flat_selected_experts=flat_selected_experts,
-                flat_token_ids=flat_token_ids,
-                flat_route_weights_hidden=flat_route_weights_hidden,
-            )
 
         packed_route = self._build_packed_routing(
             flat_selected_experts=flat_selected_experts,

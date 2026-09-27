@@ -1,41 +1,35 @@
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 
 from bitsmoe.algorithms import _HAS_MLP_FORWARD_CUDA, mlp_forward_cuda
+from bitsmoe.models.shared_basis_marlin import marlin_shared_basis_linear
 
 
 class BitsMoE_BaseSparseMoeBlock(nn.Module):
     _SHARED_BASIS_BUFFER_KEYS = (
-        "shared_vh_gate_proj",
-        "shared_vh_up_proj",
-        "shared_u_down",
+        "shared_vh_gate_proj_qweight",
+        "shared_vh_gate_proj_scales",
+        "shared_vh_up_proj_qweight",
+        "shared_vh_up_proj_scales",
+        "shared_u_down_qweight",
+        "shared_u_down_scales",
     )
 
-    def _init_bitsmoe_common_state(
-        self,
-        super_experts: Optional[List[int]] = None,
-        track_super_projected_weights: bool = False,
-    ) -> None:
-        self.super_experts = sorted(set(int(x) for x in (super_experts or [])))
-        self._super_expert_set = set(self.super_experts)
-        self.packed_expert_mask = [False for _ in range(len(self.experts))]
-        if track_super_projected_weights:
-            self.super_projected_weights: Dict[int, Dict[str, torch.Tensor]] = {}
-
-        self.register_buffer("shared_vh_gate_proj", torch.empty(0, dtype=torch.float16), persistent=True)
-        self.register_buffer("shared_vh_up_proj", torch.empty(0, dtype=torch.float16), persistent=True)
-        self.register_buffer("shared_u_down", torch.empty(0, dtype=torch.float16), persistent=True)
+    def _init_bitsmoe_common_state(self) -> None:
+        for name in ("shared_vh_gate_proj", "shared_vh_up_proj", "shared_u_down"):
+            self.register_buffer(f"{name}_qweight", torch.empty(0, dtype=torch.int32), persistent=True)
+            self.register_buffer(f"{name}_scales", torch.empty(0, dtype=torch.float16), persistent=True)
+        self._shared_marlin_workspaces: Dict[str, torch.Tensor] = {}
+        self._shared_marlin_scales_cache: Dict[str, torch.Tensor] = {}
 
         # Runtime caches for packed path (built lazily on target device).
         self._runtime_cache_ready = False
         self._runtime_cache_device: Optional[torch.device] = None
-        self._runtime_warmed = False
         self._cached_token_count = -1
         self._cached_flat_token_ids: Optional[torch.Tensor] = None
 
-        self._super_expert_items: List[Tuple[int, nn.Module]] = []
         self._packed_expert_count = 0
         self._packed_intermediate_size = 0
         self._packed_global_to_local: Optional[torch.Tensor] = None
@@ -61,31 +55,37 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
         self._down_scale_static: Sequence[torch.Tensor] = ()
         self._down_s_static: Sequence[torch.Tensor] = ()
 
-    def _runtime_device(self) -> torch.device:
-        gate = getattr(self, "gate", None)
-        weight = getattr(gate, "weight", None)
-        if isinstance(weight, torch.Tensor):
-            return weight.device
-        return next(gate.parameters()).device
+    def _shared_basis_rank(self, name: str) -> int:
+        scales = getattr(self, f"{name}_scales")
+        return int(scales.shape[0] * 128 if name == "shared_u_down" else scales.shape[1])
 
-    def _set_buffer(self, name: str, tensor: torch.Tensor) -> None:
-        t = tensor.detach().to(
-            device=self._runtime_device(),
-            dtype=torch.float16,
-            non_blocking=True,
-        ).contiguous()
-        setattr(self, name, t)
+    def _shared_basis_linear(self, x: torch.Tensor, name: str) -> torch.Tensor:
+        weight = getattr(self, f"{name}_qweight")
+        scales = getattr(self, f"{name}_scales")
+        if weight.numel() == 0 or scales.numel() == 0:
+            raise RuntimeError(f"Layer {self.layer_idx} missing {name} Marlin weights.")
+        x = x.to(torch.float16)
+        if scales.dtype != torch.float16:
+            cached = self._shared_marlin_scales_cache.get(name)
+            if cached is None or cached.device != scales.device:
+                cached = scales.to(torch.float16)
+                self._shared_marlin_scales_cache[name] = cached
+            scales = cached
+        workspace = self._ensure_shared_marlin_workspace(name, x.device)
+        return marlin_shared_basis_linear(x, weight, scales, workspace)
 
-    def set_shared_basis(self, gate_vh: torch.Tensor, up_vh: torch.Tensor, down_u: torch.Tensor) -> None:
-        self._set_buffer("shared_vh_gate_proj", gate_vh)
-        self._set_buffer("shared_vh_up_proj", up_vh)
-        self._set_buffer("shared_u_down", down_u)
-        self._invalidate_runtime_cache()
+    def _ensure_shared_marlin_workspace(self, name: str, device: torch.device) -> torch.Tensor:
+        workspace = self._shared_marlin_workspaces.get(name)
+        if workspace is None or workspace.device != device:
+            from vllm.model_executor.layers.quantization.utils.marlin_utils import marlin_make_workspace_new
 
-    def set_expert(self, expert_idx: int, expert_module: nn.Module, packed: bool) -> None:
+            workspace = marlin_make_workspace_new(device)
+            self._shared_marlin_workspaces[name] = workspace
+        return workspace
+
+    def set_expert(self, expert_idx: int, expert_module: Optional[nn.Module]) -> None:
         idx = int(expert_idx)
         self.experts[idx] = expert_module
-        self.packed_expert_mask[idx] = bool(packed)
         self._invalidate_runtime_cache()
 
     def _load_from_state_dict(
@@ -98,20 +98,16 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
         unexpected_keys,
         error_msgs,
     ):
-        for key, tensor in state_dict.items():
-            if not key.startswith(prefix):
-                continue
-            local_key = key[len(prefix):]
-            if "." in local_key:
-                continue
-            if not hasattr(self, local_key):
+        assign_to_params_buffers = bool(local_metadata.get("assign_to_params_buffers", False))
+        for local_key in self._SHARED_BASIS_BUFFER_KEYS:
+            tensor = state_dict.get(f"{prefix}{local_key}")
+            if not isinstance(tensor, torch.Tensor):
                 continue
             current = getattr(self, local_key)
-            if not isinstance(current, torch.Tensor):
-                continue
             if current.shape == tensor.shape and current.dtype == tensor.dtype:
                 continue
-            setattr(self, local_key, torch.empty_like(tensor))
+            replacement = tensor.detach() if assign_to_params_buffers else torch.empty_like(tensor)
+            setattr(self, local_key, replacement)
 
         super()._load_from_state_dict(
             state_dict=state_dict,
@@ -122,22 +118,9 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
             unexpected_keys=unexpected_keys,
             error_msgs=error_msgs,
         )
+        self._shared_marlin_workspaces.clear()
+        self._shared_marlin_scales_cache.clear()
         self._invalidate_runtime_cache()
-
-    def set_super_expert_projected_weights(
-        self,
-        expert_idx: int,
-        gate_us: torch.Tensor,
-        up_us: torch.Tensor,
-        down_svh: torch.Tensor,
-    ) -> None:
-        if not hasattr(self, "super_projected_weights"):
-            self.super_projected_weights = {}
-        self.super_projected_weights[int(expert_idx)] = {
-            "gate_us": gate_us.detach().to(dtype=torch.float16).contiguous(),
-            "up_us": up_us.detach().to(dtype=torch.float16).contiguous(),
-            "down_svh": down_svh.detach().to(dtype=torch.float16).contiguous(),
-        }
 
     def _act_type(self) -> int:
         hidden_act = str(getattr(self.config, "hidden_act", "silu")).lower()
@@ -148,7 +131,6 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
     def _invalidate_runtime_cache(self) -> None:
         self._runtime_cache_ready = False
         self._runtime_cache_device = None
-        self._runtime_warmed = False
         self._cached_token_count = -1
         self._cached_flat_token_ids = None
 
@@ -156,22 +138,19 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
         if self._runtime_cache_ready and self._runtime_cache_device == device:
             return
 
-        super_items: List[Tuple[int, nn.Module]] = []
-        packed_items: List[Tuple[int, nn.Module]] = []
+        packed_items = []
         for expert_idx, expert_layer in enumerate(self.experts):
             if expert_layer is None:
                 continue
-            if expert_idx in self._super_expert_set:
-                super_items.append((expert_idx, expert_layer))
+            if getattr(expert_layer, "skip_expert", False):
                 continue
             if not getattr(expert_layer, "is_bitsmoe_packed", False):
                 raise RuntimeError(
                     f"Layer {self.layer_idx} expert {expert_idx} is active but not packed. "
-                    "BitsMoE forward expects non-super routed experts to use packed kernel."
+                    "BitsMoE forward expects routed experts to use the packed kernel."
                 )
             packed_items.append((expert_idx, expert_layer))
 
-        self._super_expert_items = super_items
         self._packed_expert_count = len(packed_items)
         self._packed_intermediate_size = 0
         self._cached_token_count = -1
@@ -240,7 +219,6 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
 
         self._runtime_cache_ready = True
         self._runtime_cache_device = device
-        self._runtime_warmed = False
 
     def _get_flat_token_ids(self, token_count: int, device: torch.device) -> torch.Tensor:
         if (
@@ -288,83 +266,6 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
         expert_offsets_t[1:] = torch.cumsum(counts, dim=0).to(torch.int32)
         return token_indices, expert_offsets_t, route_flat
 
-    def _run_super_experts(
-        self,
-        hidden_states: torch.Tensor,
-        final_hidden_states: torch.Tensor,
-        flat_selected_experts: torch.Tensor,
-        flat_token_ids: torch.Tensor,
-        flat_route_weights_hidden: torch.Tensor,
-    ) -> None:
-        for expert_idx, expert_layer in self._super_expert_items:
-            mask = flat_selected_experts == expert_idx
-            if not mask.any():
-                continue
-            token_ids = flat_token_ids[mask]
-            current_state = hidden_states.index_select(0, token_ids)
-            current_hidden_states = expert_layer(current_state)
-            current_hidden_states = current_hidden_states * flat_route_weights_hidden[mask].unsqueeze(-1)
-            final_hidden_states.index_add_(0, token_ids, current_hidden_states.to(hidden_states.dtype))
-
-    def prepare_runtime_fastpath(self, warmup: bool = True) -> None:
-        device = self._runtime_device()
-        self._ensure_runtime_cache(device)
-        if warmup:
-            self._warmup_runtime_once(device)
-
-    def _warmup_runtime_once(self, device: torch.device) -> None:
-        if self._runtime_warmed:
-            return
-        if device.type != "cuda":
-            return
-        if not (_HAS_MLP_FORWARD_CUDA and mlp_forward_cuda is not None):
-            return
-        if self._packed_expert_count <= 0:
-            self._runtime_warmed = True
-            return
-        if self.shared_vh_gate_proj.numel() == 0 or self.shared_vh_up_proj.numel() == 0:
-            return
-
-        rank_dim = int(self.shared_vh_gate_proj.shape[0])
-        if rank_dim <= 0:
-            return
-
-        active_assign = min(self.top_k, self._packed_expert_count)
-        if active_assign <= 0:
-            self._runtime_warmed = True
-            return
-
-        h_gate_proj = torch.zeros((1, rank_dim), dtype=torch.float16, device=device)
-        h_up_proj = torch.zeros((1, rank_dim), dtype=torch.float16, device=device)
-        token_indices = torch.zeros((active_assign,), dtype=torch.int32, device=device)
-        route_flat = torch.full(
-            (active_assign,),
-            1.0 / float(active_assign),
-            dtype=torch.float32,
-            device=device,
-        )
-        counts = torch.zeros((self._packed_expert_count,), dtype=torch.int32, device=device)
-        counts[:active_assign] = 1
-        expert_offsets_t = torch.empty(
-            (self._packed_expert_count + 1,),
-            dtype=torch.int32,
-            device=device,
-        )
-        expert_offsets_t[0] = 0
-        expert_offsets_t[1:] = torch.cumsum(counts, dim=0)
-
-        with torch.no_grad():
-            _ = self._packed_forward_cuda(
-                h_gate_proj=h_gate_proj,
-                h_up_proj=h_up_proj,
-                token_indices=token_indices,
-                expert_offsets_t=expert_offsets_t,
-                route_flat=route_flat,
-                token_count=1,
-            )
-        torch.cuda.synchronize(device)
-        self._runtime_warmed = True
-
     def _packed_forward_cuda(
         self,
         h_gate_proj: torch.Tensor,
@@ -374,7 +275,7 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
         route_flat: torch.Tensor,
         token_count: int,
     ) -> torch.Tensor:
-        rank_out = int(self.shared_u_down.shape[1])
+        rank_out = self._shared_basis_rank("shared_u_down")
         intermediate_size = int(self._packed_intermediate_size)
         if intermediate_size <= 0:
             raise RuntimeError(f"Layer {self.layer_idx} has no packed experts for CUDA path.")
@@ -411,7 +312,7 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
                 f"Invalid rank_accum shape from CUDA kernel: got {tuple(rank_accum.shape)}, "
                 f"expected ({token_count}, {rank_out})"
             )
-        return torch.matmul(rank_accum.to(self.shared_u_down.dtype), self.shared_u_down.T)
+        return self._shared_basis_linear(rank_accum, "shared_u_down")
 
     def _packed_forward_grouped(
         self,
@@ -422,8 +323,8 @@ class BitsMoE_BaseSparseMoeBlock(nn.Module):
         route_flat: torch.Tensor,
         token_count: int,
     ) -> torch.Tensor:
-        if self.shared_u_down.numel() == 0:
-            raise RuntimeError(f"Layer {self.layer_idx} missing shared_u_down for packed routed experts.")
+        if self.shared_u_down_qweight.numel() == 0 or self.shared_u_down_scales.numel() == 0:
+            raise RuntimeError(f"Layer {self.layer_idx} missing shared_u_down Marlin weights.")
 
         can_use_cuda = (
             _HAS_MLP_FORWARD_CUDA
