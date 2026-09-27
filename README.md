@@ -1,7 +1,7 @@
-# BitsMoE: Efficient Spectral Energy-Guided Bit Allocation for MoE LLM Quantization
+# BitsMoE: Cost-Aware Bit Allocation in Spectral Space for MoE LLM Quantization
 
 <p align="center">
-  <img src="assets/bitsmoe-logo.png" alt="BitsMoE Logo" width="300">
+  <img src="assets/bitsmoe-logo.png" alt="BitsMoE Logo" width="250">
 </p>
 
 <p align="center">
@@ -26,7 +26,9 @@
 
 ## 🔍 Overview
 
-**BitsMoE** is a spectral-energy-guided bit-allocation framework for ultra-low-bit quantization of Mixture-of-Experts (MoE) LLMs. It decomposes each MoE layer via SVD into a **shared basis** (stored in Marlin W8A16 format) and **expert-specific spectral factors** (treated as fine-grained quantization units). Bit-widths are assigned by solving an **integer linear program (ILP)** that minimizes an activation-aware reconstruction surrogate under a fixed bit budget.
+**BitsMoE** is a cost-aware mixed-precision quantization framework for Mixture-of-Experts (MoE) LLMs. Assigning one bit-width to an entire expert or linear block overlooks differences among the directions within it. Shared-basis Spectral Decomposition (SSD) separates a basis shared across experts from expert-specific spectral components, which serve as fine-grained quantization units. The shared basis is quantized to 8-bit precision, while the expert-specific spectral directions receive component-wise bit-widths.
+
+Factorized Quantization Cost Modeling (FQCM) estimates each component's cost from its intrinsic spectral importance, activation-dependent importance, and bit-width-dependent distortion. BitsMoE uses these costs in a global integer linear program (ILP) to assign bit-widths under a fixed memory budget, then groups and packs the quantized directions for GPU inference.
 
 <p align="center">
   <img src="assets/BitsMoE.png" alt="BitsMoE Framework" width="100%">
@@ -35,9 +37,10 @@
 
 ### ✨ Key Contributions
 
-- **🧠 Capacity-preserving spectral quantization.** A shared spectral parameterization for MoE layers that preserves cross-expert structure while exposing expert-specific spectral components as fine-grained quantization units.
-- **🎯 Importance-aligned bit allocation under a fixed budget.** An ILP-based formulation that jointly accounts for spectral energy, activation importance, and bit-dependent quantization distortion.
-- **⚡ Accurate and efficient MoE deployment.** An end-to-end framework integrating shared-basis decomposition, adaptive bit allocation, and efficient inference — delivering higher downstream accuracy and inference efficiency under ultra-low-bit settings across multiple MoE LLMs.
+- **🧠 Shared-basis Spectral Decomposition (SSD).** SSD captures structure shared across experts and exposes expert-specific spectral components as fine-grained quantization units.
+- **🎯 Factorized Quantization Cost Modeling (FQCM).** FQCM approximates component-wise quantization costs from expected routing-weighted output reconstruction loss by combining intrinsic spectral importance, activation-dependent importance, and bit-width-dependent distortion.
+- **📊 Global bit allocation.** An ILP assigns a bit-width to each spectral component to minimize total modeled quantization cost under a fixed memory budget.
+- **⚡ Measured accuracy and efficiency.** In the paper's 2-bit Qwen3-30B-A3B evaluation, BitsMoE reaches 64.29% average accuracy across seven tasks, 2.80 percentage points above GEMQ. It achieves 16.47× faster end-to-end offline quantization than GEMQ and up to 6.46× the decode throughput of GPTQ under the reported benchmark settings.
 
 <a id="preparation"></a>
 
@@ -77,6 +80,7 @@ conda create -n bitsmoe python=3.12 -y
 conda activate bitsmoe
 uv pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 uv pip install packaging ninja psutil
+uv pip install vllm==0.11.0
 uv pip install flash-attn --no-build-isolation
 uv pip install flash-linear-attention --no-build-isolation
 uv pip install --no-binary=causal-conv1d "git+https://github.com/Dao-AILab/causal-conv1d.git" --no-build-isolation
@@ -184,5 +188,4 @@ If you find our work useful, please consider citing:
       primaryClass={cs.LG},
       url={https://arxiv.org/abs/2606.00079}
 }
-
 ```
