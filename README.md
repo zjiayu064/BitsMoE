@@ -33,7 +33,7 @@ Factorized Quantization Cost Modeling (FQCM) estimates each component's cost fro
 <p align="center">
   <img src="assets/BitsMoE.png" alt="BitsMoE Framework" width="100%">
 </p>
-<p align="center"><i>Figure 1. Overview of the BitsMoE pipeline: shared-basis SVD decomposition, ILP-based mixed-precision quantization, and efficient inference.</i></p>
+<p align="center"><i>Figure 1. BitsMoE pipeline: SSD extracts a shared basis and expert-specific components; FQCM estimates quantization costs; an ILP allocates bit-widths.</i></p>
 
 ### ✨ Key Contributions
 
@@ -96,7 +96,7 @@ uv pip install -e . --no-build-isolation
 
 By default, models are downloaded from Hugging Face (Transformers cache).
 
-Run one inference demo (PPL):
+Stream a short response from the Qwen3-30B-A3B BitsMoE checkpoint:
 
 ```bash
 bitsmoe demo

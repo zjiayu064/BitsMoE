@@ -7,7 +7,7 @@ def _usage() -> str:
         "usage: bitsmoe <command> [args]\n\n"
         "commands:\n"
         "  eval        Run evaluation config\n"
-        "  demo        Run single inference demo (qwen3moe PPL)\n"
+        "  demo        Stream a short Qwen3MoE generation example\n"
     )
 
 
