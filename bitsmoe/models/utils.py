@@ -6,8 +6,7 @@ from bitsmoe.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 def drop_dense_linear(linear: nn.Linear, name: str = ""):
-    """
-    Safely remove weight & bias Parameters from an nn.Linear module.
+    """Safely remove weight & bias Parameters from an nn.Linear module.
 
     After this:
         - linear.weight / linear.bias are no longer nn.Parameter
@@ -32,12 +31,12 @@ def drop_dense_linear(linear: nn.Linear, name: str = ""):
     if linear.bias is not None:
         linear.register_parameter("bias", None)
 
-    # ---- optional placeholder buffer (debug-friendly) ----
+    # Mark the module as cleared with an empty buffer.
     if not hasattr(linear, "_bitsmoe_dense_cleared"):
         linear.register_buffer("_bitsmoe_dense_cleared", torch.empty(0))
 
 
-# For debug
+# Report parameter shapes, dtypes, and memory usage.
 def report_model_param_memory(model):
     total_bytes = 0
     print("=" * 80)

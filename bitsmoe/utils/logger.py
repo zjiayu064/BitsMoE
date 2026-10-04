@@ -8,10 +8,7 @@ from tqdm import tqdm
 from bitsmoe.utils.get_path import get_abs_path
 
 class TqdmLoggingHandler(logging.Handler):
-    """
-    Logging handler compatible with tqdm progress bars.
-    All logs are routed via tqdm.write to avoid corrupting the bar.
-    """
+    """Logging handler compatible with tqdm progress bars. All logs are routed via tqdm.write to avoid corrupting the bar."""
 
     def __init__(self, level=logging.NOTSET, stream=None):
         super().__init__(level)
@@ -36,12 +33,10 @@ def is_main_process():
 
 
 def setup_logger(name: Optional[str] = None, file_name: Optional[str] = None):
-    """
-    Create or get a logger that is:
+    """Create or get a logger that is:
       - tqdm-safe (will not break progress bars)
       - supports both console and file logging
       - main-process only (for distributed setups)
-      - backward compatible with the original interface
     """
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
@@ -59,7 +54,7 @@ def setup_logger(name: Optional[str] = None, file_name: Optional[str] = None):
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-        # -------- optional file handler (unchanged semantics) --------
+        # -------- optional file handler --------
         if file_name is not None:
             file_name = get_abs_path(file_name)
 
@@ -74,8 +69,7 @@ def setup_logger(name: Optional[str] = None, file_name: Optional[str] = None):
 
 
 def hijack_lm_eval_only(level: int = logging.INFO) -> None:
-    """
-    Hijack ALL lm-eval loggers, including both:
+    """Hijack ALL lm-eval loggers, including both:
       - official: lm_eval.*
       - vendored: bitsmoe.evaluation.lm_eval.lm_eval.*
 
@@ -115,9 +109,7 @@ def hijack_lm_eval_only(level: int = logging.INFO) -> None:
 
 
 def hijack_gptq_only(level: int = logging.INFO) -> None:
-    """
-    Hijack GPTQ-related and accelerator loggers and redirect them
-    to the project logger.
+    """Hijack GPTQ-related and accelerator loggers and redirect them to the project logger.
 
     Covered logger trees:
       - auto_gptq.*
@@ -127,8 +119,7 @@ def hijack_gptq_only(level: int = logging.INFO) -> None:
       - accelerate.*
       - tokenicer.*
 
-    This function also safely takes over the root logger stream handlers
-    to guarantee full log unification.
+    This function also safely takes over the root logger stream handlers to guarantee full log unification.
     """
 
     bitsmoe_logger = setup_logger("bitsmoe.baselines.gptq")
@@ -203,10 +194,7 @@ def hijack_gptq_only(level: int = logging.INFO) -> None:
 
 
 def _format_skipped(skipped: list[tuple[int, int]]) -> str:
-    """
-    Public interface remains unchanged.
-    Only returns a compact engineering summary for logging.
-    """
+    """Return a compact summary of skipped experts for logging."""
     summary = _summarize_skipped(skipped)
 
     lines = [
@@ -219,9 +207,7 @@ def _format_skipped(skipped: list[tuple[int, int]]) -> str:
 
 
 def _summarize_skipped(skipped: list[tuple[int, int]]) -> dict:
-    """
-    Compute high-level statistics for skipped experts.
-    """
+    """Compute high-level statistics for skipped experts."""
 
     if not skipped:
         return {

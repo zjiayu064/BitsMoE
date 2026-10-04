@@ -64,7 +64,7 @@ class BitPack:
         BitPack._check_bits(bits)
         W_q = BitPack._check_pack_input(W_q)
 
-        # Fast path: fused signed-int8 pack kernels (avoid extra int8->uint8 pass).
+        # Pack signed int8 values directly when the extension exposes signed kernels.
         if hasattr(bitpack_cuda, "pack_int8_1bit"):
             dispatch_i8 = {
                 1: bitpack_cuda.pack_int8_1bit,
@@ -76,7 +76,7 @@ class BitPack:
             }
             packed = dispatch_i8[bits](W_q)
         else:
-            # Backward-compatible path for older compiled extensions.
+            # Use unsigned bit packing with explicit signed-value conversion.
             unsigned = BitPack._int8_to_uint8(W_q, bits)
             dispatch_u8 = {
                 1: bitpack_cuda.pack_1bit,
@@ -99,7 +99,7 @@ class BitPack:
         if original_size < 0:
             raise ValueError(f"original_size must be non-negative, got {original_size}")
 
-        # Fast path: fused unpack-to-int8 kernels.
+        # Decode packed values directly into signed int8.
         if hasattr(bitpack_cuda, "unpack_int8_1bit"):
             dispatch_i8 = {
                 1: bitpack_cuda.unpack_int8_1bit,
@@ -116,7 +116,7 @@ class BitPack:
                 )
             return out[:, :original_size].contiguous()
 
-        # Backward-compatible path for older compiled extensions.
+        # Use unsigned bit packing with explicit signed-value conversion.
         dispatch_u8 = {
             1: bitpack_cuda.unpack_1bit,
             2: bitpack_cuda.unpack_2bit,

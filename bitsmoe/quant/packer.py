@@ -41,12 +41,9 @@ def _words_per_row(bits: int) -> int:
 
 
 def _pack_lowbit_tile_payload(tile_q: Tensor, bits: int) -> Tensor:
-    """
-    Pack one tile [k_slab, n_valid] int8 into 1-D uint32 payload.
+    """Pack one tile [k_slab, n_valid] int8 into 1-D uint32 payload.
 
-    Physical order in payload:
-      [stage][microtile][row][word]
-    with fixed stage/microtile traversal.
+    Payload order is [stage][microtile][row][word], with fixed stage/microtile traversal.
     """
     if tile_q.dim() != 2 or tile_q.dtype != torch.int8:
         raise ValueError("tile_q must be 2-D int8")
@@ -77,9 +74,7 @@ def _pack_lowbit_tile_payload(tile_q: Tensor, bits: int) -> Tensor:
 
 
 def _unpack_lowbit_tile_payload(payload_tile: Tensor, bits: int, k_slab: int, device: torch.device) -> Tensor:
-    """
-    Decode payload of one tile into [k_slab, 128] int8 (padded columns included).
-    """
+    """Decode payload of one tile into [k_slab, 128] int8 (padded columns included)."""
     out = torch.empty((k_slab, N_TILE), dtype=torch.int8, device=device)
     ptr = 0
     words_row = _words_per_row(bits)
@@ -102,8 +97,7 @@ def _unpack_lowbit_tile_payload(payload_tile: Tensor, bits: int, k_slab: int, de
 
 
 def _pack_fp16_tile_payload(tile_fp16: Tensor) -> Tensor:
-    """
-    Pack one fp16 tile [k_slab, n_valid] to 1-D uint32 payload in [stage][micro][row][word] order.
+    """Pack one fp16 tile [k_slab, n_valid] to 1-D uint32 payload in [stage][micro][row][word] order.
 
     Row-chunk [1, 32] -> 16 uint32 words by bit-casting two fp16 into one uint32.
     """
@@ -171,9 +165,7 @@ def _reorder_packed_rows_to_runtime_layout(
     k_slab: int,
     words_per_row: int,
 ) -> Tensor:
-    """
-    Convert [tile, row, micro, word] to runtime order [tile, stage, micro, row, word].
-    """
+    """Convert [tile, row, micro, word] to runtime order [tile, stage, micro, row, word]."""
     if packed_rows.dim() != 4:
         raise ValueError(f"packed_rows must be 4-D, got shape={tuple(packed_rows.shape)}")
     if int(packed_rows.shape[1]) != k_slab:
@@ -212,8 +204,7 @@ def _pack_lowbit_slab_payload_and_scale(
     bits: int,
     quantize_events: List[Tuple[torch.cuda.Event, torch.cuda.Event]] | None = None,
 ) -> Tuple[Tensor, Tensor]:
-    """
-    Pack one slab [k_slab, dim] low-bit quantized payload in tile-major order.
+    """Pack one slab [k_slab, dim] low-bit quantized payload in tile-major order.
 
     Returns:
         payload_tiles: [n_tiles, words_per_tile] uint32
@@ -223,9 +214,7 @@ def _pack_lowbit_slab_payload_and_scale(
         raise ValueError("slab_rank must be 2-D")
 
     device = slab_rank.device
-    # Upcast to fp32 for quantize_symmetric so that iterative MSE scale
-    # refinement (bits in {2,3,4}) and clamp(min=eps) stay numerically stable.
-    # fp16 inputs would underflow eps=1e-8 to 0 and increase quantization error.
+    # Upcast to fp32 for quantize_symmetric so that iterative MSE scale refinement (bits in {2,3,4}) and clamp(min=eps) stay numerically stable. fp16 inputs would underflow eps=1e-8 to 0 and increase quantization error.
     if slab_rank.dtype != torch.float32:
         slab_rank = slab_rank.to(torch.float32)
     k_slab, dim = slab_rank.shape
@@ -309,8 +298,7 @@ def _pack_lowbit_slab_payload_and_scale(
 def _pack_fp16_slab_payload_and_scale(
     slab_rank: Tensor,
 ) -> Tuple[Tensor, Tensor]:
-    """
-    Pack one slab [k_slab, dim] fp16 payload in tile-major order.
+    """Pack one slab [k_slab, dim] fp16 payload in tile-major order.
 
     Returns:
         payload_tiles: [n_tiles, words_per_tile] uint32
@@ -385,9 +373,7 @@ def validate_runtime_layout(
     atol: float = 0.0,
     rtol: float = 0.0,
 ) -> None:
-    """
-    Validate runtime buffers by decoding payload/meta and comparing to direct per-tile quantization.
-    """
+    """Validate runtime buffers by decoding payload/meta and comparing to direct per-tile quantization."""
     if groupsize != N_TILE:
         raise ValueError(f"Validation currently expects groupsize={N_TILE}, got {groupsize}")
 
@@ -440,8 +426,7 @@ def validate_runtime_layout(
             decoded_q = _unpack_lowbit_tile_payload(payload_tile, bits, k_slab, device=device)
             decoded_q = decoded_q[:, :n_valid]
 
-            # Match the packer's quantize dtype (fp32) so validation does not
-            # drift on fp16 rank_major inputs.
+            # Match the packer's quantize dtype (fp32) so validation does not drift on fp16 rank_major inputs.
             ref_tile = slab_ref[:, c0:c0 + n_valid].to(torch.float32)
             q_ref, _ = quantize_symmetric(ref_tile, bits=bits, dim=1)
             if not torch.equal(decoded_q, q_ref):
@@ -467,15 +452,13 @@ def _get_rank_major_tensor(
     mtype: str,
     device: torch.device,
 ) -> Tuple[Tensor, Tensor, str]:
-    """
-    Return rank-major matrix and S.
+    """Return rank-major matrix and S.
 
     gate/up input format:
         moe_dict[layer][expert][mtype] = (U_rank_dim, S), U_rank_dim shape [rank, dim]
 
     down input format:
-        moe_dict[layer][expert][mtype] = (Vh_dim_rank, S), Vh_dim_rank shape [dim, rank]
-        Converted to rank-major [rank, dim] by transpose.
+        moe_dict[layer][expert][mtype] = (Vh_dim_rank, S), Vh_dim_rank shape [dim, rank] Converted to rank-major [rank, dim] by transpose.
 
     Returns:
         rank_major: [rank, dim]
@@ -524,8 +507,7 @@ def pack_single_weight(
     groupsize: int = N_TILE,
     validate_layout: bool = False,
 ):
-    """
-    Quantize + pack one expert matrix into runtime-friendly flat buffers.
+    """Quantize + pack one expert matrix into runtime-friendly flat buffers.
 
     Global buffers generated:
       - payload_buffer (uint32, 1-D): [slab][tile][stage][micro][row][word]
@@ -667,7 +649,7 @@ def pack_single_weight(
                     f"tile count mismatch: expected {n_tiles}, got {int(payload_tiles.shape[0])}"
                 )
 
-            # Metadata is still tile-centric and unchanged.
+            # Store metadata per tile.
             for tile_id in range(n_tiles):
                 c0 = tile_id * N_TILE
                 n_valid = min(N_TILE, dim - c0)
@@ -754,10 +736,7 @@ def save_sharded_checkpoint(
     save_dir: str,
     compressed_ratio: float
 ):
-    """
-    Save quantized state_dict without sharding.
-    Always produces a single-file HF-style checkpoint: pytorch_model.bin
-    """
+    """Save quantized state_dict without sharding. Always produces a single-file HF-style checkpoint: pytorch_model.bin"""
     logger = setup_logger(__name__)
     os.makedirs(save_dir, exist_ok=True)
 

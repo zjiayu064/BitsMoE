@@ -213,7 +213,7 @@ def _maybe_enable_meta_param_progress_hook(enable: bool):
 
 
 @contextmanager
-def _maybe_enable_hf_key_precheck_fastpath(enable: bool):
+def _maybe_enable_hf_key_precheck_fastpath(enable: bool, *, deferred_runtime_buffers: bool = False):
     if not enable:
         yield
         return
@@ -236,11 +236,9 @@ def _maybe_enable_hf_key_precheck_fastpath(enable: bool):
         missing_keys, unexpected_keys = old_find_missing(*args, **kwargs)
         dt = time.perf_counter() - t0
 
-        # For qwen3next with deferred expert runtime buffers, these keys are
-        # intentionally absent from model.state_dict() pre-load, but they are
-        # still valid load targets via module.load_state_dict(assign=True).
+        # For qwen3next with deferred expert runtime buffers, these keys are intentionally absent from model.state_dict() pre-load, but they are still valid load targets via module.load_state_dict(assign=True).
         unexpected_before = len(unexpected_keys)
-        if unexpected_before > 0:
+        if deferred_runtime_buffers and unexpected_before > 0:
             unexpected_keys = [k for k in unexpected_keys if not _is_bitsmoe_runtime_expert_key(k)]
         skipped_runtime_unexpected = unexpected_before - len(unexpected_keys)
 
@@ -344,6 +342,10 @@ class _FastContainsList(list):
 
     def __contains__(self, item):
         return item in self._set
+
+    def __add__(self, other):
+        # Transformers concatenates missing and mismatched keys before its initialization pass, which performs another membership check per key.
+        return _FastContainsList(super().__add__(other))
 
 
 def _is_bitsmoe_runtime_expert_key(key: str) -> bool:
@@ -537,9 +539,7 @@ def _bitsmoe_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs
             trust_remote_code=bool(kwargs.get("trust_remote_code", False)),
         )
     else:
-        # Align behavior with HF no-config path:
-        # consume config-overridable kwargs before model __init__ to avoid
-        # unexpected keyword errors (e.g. use_cache passed to __init__).
+        # Align behavior with HF no-config path: consume config-overridable kwargs before model __init__ to avoid unexpected keyword errors (e.g. use_cache passed to __init__).
         for k in list(kwargs.keys()):
             if k == "config":
                 continue
@@ -579,9 +579,9 @@ def _bitsmoe_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs
     if bitsmoe_model_type == "qwen3next" and not _env_flag("BITSMOE_QWEN3NEXT_META_PROGRESS_HOOK", True):
         use_meta_param_hook = False
     patched_cls._bitsmoe_external_progress_updates = use_meta_param_hook
-    enable_hf_key_fastpath = bool(
-        bitsmoe_model_type == "qwen3next" and _env_flag("BITSMOE_QWEN3NEXT_HF_KEY_PRECHECK_FASTPATH", True)
-    )
+    enable_hf_key_fastpath = _env_flag("BITSMOE_HF_KEY_PRECHECK_FASTPATH", True)
+    if bitsmoe_model_type == "qwen3next":
+        enable_hf_key_fastpath &= _env_flag("BITSMOE_QWEN3NEXT_HF_KEY_PRECHECK_FASTPATH", True)
 
     logger.info(
         "Loading BitsMoE model from %s with patched class %s ...",
@@ -590,12 +590,13 @@ def _bitsmoe_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs
     )
     if bitsmoe_model_type == "qwen3next":
         _log_checkpoint_index_stats(pretrained_model_name_or_path)
-    # Do not force-inject `config` when we only loaded it for routing/type
-    # detection; let HF from_pretrained consume kwargs as usual.
+    # Do not force-inject `config` when we only loaded it for routing/type detection; let HF from_pretrained consume kwargs as usual.
     with (
         _maybe_enable_qwen3next_fast_init(bitsmoe_model_type == "qwen3next"),
         _maybe_enable_meta_param_progress_hook(use_meta_param_hook),
-        _maybe_enable_hf_key_precheck_fastpath(enable_hf_key_fastpath),
+        _maybe_enable_hf_key_precheck_fastpath(
+            enable_hf_key_fastpath, deferred_runtime_buffers=bitsmoe_model_type == "qwen3next",
+        ),
     ):
         try:
             model = patched_cls.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
@@ -620,11 +621,7 @@ ensure_auto_patch_installed()
 
 @contextmanager
 def patch_quant_config_from_lm_cfg(lm_cfg: Dict[str, Any]):
-    """
-    Temporarily inject or override `quantization_config` into HF config.
-
-    This helper is kept for evaluation compatibility.
-    """
+    """Temporarily inject or override `quantization_config` into HF config."""
 
     override_qcfg = lm_cfg.get("quantization_config", None)
     if not isinstance(override_qcfg, dict):

@@ -7,10 +7,7 @@ from bitsmoe.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 def set_seed(seed: int):
-    """
-    Set random seed for reproducibility.
-    Works for Python, NumPy, PyTorch (CPU & CUDA).
-    """
+    """Set random seed for reproducibility. Works for Python, NumPy, PyTorch (CPU & CUDA)."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

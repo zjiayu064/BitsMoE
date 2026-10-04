@@ -23,7 +23,7 @@ def infer_expert_mtypes(expert):
     if all(hasattr(expert, n) for n in fallback):
         return fallback
 
-    # Collect Linear layers for debug
+    # Collect Linear layers by module name.
     available = [
         name for name, m in expert.named_modules()
         if isinstance(m, torch.nn.Linear)
@@ -38,8 +38,7 @@ def infer_expert_mtypes(expert):
     )
 
 def map_mtype(mtype: str) -> str:
-    """
-    Map expert projection name to canonical MoE naming.
+    """Map expert projection name to canonical MoE naming.
 
     Canonical names:
         - gate_proj

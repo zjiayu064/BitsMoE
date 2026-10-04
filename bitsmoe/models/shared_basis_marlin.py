@@ -12,8 +12,7 @@ def marlin_shared_basis_linear(
     if weight.dtype != torch.int32 or scales.dtype != torch.float16 or weight.ndim != 2 or scales.ndim != 2:
         raise ValueError("Invalid Marlin shared basis layout.")
 
-    from vllm.model_executor.layers.quantization.utils.marlin_utils import apply_gptq_marlin_linear
-    from vllm.scalar_type import scalar_types
+    from bitsmoe.algorithms.vllm_compat import apply_gptq_marlin_linear, scalar_types
 
     k = scales.shape[0] * 128
     n = scales.shape[1]
@@ -21,6 +20,15 @@ def marlin_shared_basis_linear(
         raise ValueError(f"Invalid W8 Marlin shared basis shapes: {tuple(weight.shape)}, {tuple(scales.shape)}.")
     if x.shape[-1] != k:
         raise ValueError(f"Shared basis input width {x.shape[-1]} does not match K={k}.")
+
+    # Larger row counts can produce incorrect results in vLLM 0.11's W8 Marlin kernel.
+    rows = x.reshape(-1, k)
+    if rows.shape[0] > 32:
+        output = torch.cat([
+            marlin_shared_basis_linear(chunk, weight, scales, workspace)
+            for chunk in rows.split(32)
+        ])
+        return output.reshape(*x.shape[:-1], n)
 
     empty = torch.empty(0, dtype=torch.int32, device=x.device)
     return apply_gptq_marlin_linear(

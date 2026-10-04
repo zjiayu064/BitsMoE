@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/eval.yaml",
+        required=True,
         help="Path to YAML config file",
     )
     parser.add_argument(
@@ -40,6 +40,24 @@ def parse_args():
         default=None,
         help="(lm_eval only) Override apply_chat_template from yaml config",
     )
+    parser.add_argument(
+        "--num_fewshot",
+        type=int,
+        default=None,
+        help="(lm_eval only) Override the number of few-shot examples",
+    )
+    parser.add_argument(
+        "--fewshot_as_multiturn",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="(lm_eval only) Override fewshot_as_multiturn from yaml config",
+    )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        default=None,
+        help="(lm_eval only) Override the results output path",
+    )
     return parser.parse_args()
 
 
@@ -47,15 +65,28 @@ def build_lm_eval_argv(
     cfg: dict,
     model_path: str,
     apply_chat_template_override=None,
+    num_fewshot_override: int | None = None,
+    fewshot_as_multiturn_override: bool | None = None,
+    output_path_override: str | None = None,
 ) -> list:
     logger = setup_logger(__name__)
     model_args = dict(cfg.get("model_args", {}))
-
+    backend = cfg.get("backend", cfg.get("model", "hf"))
+    is_vllm = backend in ("vllm", "bitsmoe-vllm")
     if model_path is not None:
         model_args["pretrained"] = model_path
         logger.warning(f"Model Path is overwritten to {model_path}")
 
-    apply_chat_template = cfg.get("apply_chat_template", False)
+    if is_vllm:
+        from bitsmoe_vllm.evaluation.cli import model_args as vllm_model_args
+
+        model_args = vllm_model_args(model_args)
+        backend = "bitsmoe-vllm"
+
+    extra_args = dict(cfg.get("extra_args", {}))
+    apply_chat_template = extra_args.pop(
+        "apply_chat_template", cfg.get("apply_chat_template", False)
+    )
     if apply_chat_template_override is not None:
         logger.warning(
             f"apply_chat_template overridden from yaml ({apply_chat_template}) "
@@ -65,27 +96,39 @@ def build_lm_eval_argv(
 
     argv = [
         sys.argv[0],
-        "--model", cfg.get("model", "hf"),
+        "--model", backend,
         "--model_args", json.dumps(
             model_args,
             ensure_ascii=False
         ),
-        "--device", cfg.get("device", "cuda"),
-        "--batch_size", str(cfg.get("batch_size", "auto:32")),
         "--tasks", ",".join(cfg["tasks"]),
     ]
+    for key, default in (("device", "cuda"), ("batch_size", "auto:32")):
+        value = cfg.get(key) if is_vllm else cfg.get(key, default)
+        if value is not None:
+            argv.extend([f"--{key}", str(value)])
 
-    if apply_chat_template:
+    if isinstance(apply_chat_template, str) and apply_chat_template:
+        argv.extend(["--apply_chat_template", apply_chat_template])
+    elif apply_chat_template:
         argv.append("--apply_chat_template")
 
-    extra_args = cfg.get("extra_args", {})
+    if num_fewshot_override is not None:
+        extra_args["num_fewshot"] = num_fewshot_override
+    if fewshot_as_multiturn_override is not None:
+        extra_args["fewshot_as_multiturn"] = fewshot_as_multiturn_override
+    if output_path_override is not None:
+        extra_args["output_path"] = output_path_override
     for k, v in extra_args.items():
         if v is None:
             continue
         if isinstance(v, bool):
             if v:
                 argv.append(f"--{k}")
-            # if False, skip the flag entirely
+            elif k == "fewshot_as_multiturn":
+                argv.extend([f"--{k}", "false"])
+        elif isinstance(v, (dict, list)):
+            argv.extend([f"--{k}", json.dumps(v, ensure_ascii=False)])
         else:
             argv.extend([f"--{k}", str(v)])
 
@@ -103,8 +146,7 @@ def main():
     cfg = load_yaml(args.config)
     model_path = args.model_path
 
-    # Ensure compatibility between older model code (trust_remote_code)
-    # and newer transformers cache APIs.
+    # Provide the cache methods required by trust_remote_code models.
     patch_transformers_cache_compat()
 
     # lm_eval-only overrides
@@ -132,13 +174,27 @@ def main():
             lm_cfg,
             model_path,
             apply_chat_template_override=args.apply_chat_template,
+            num_fewshot_override=args.num_fewshot,
+            fewshot_as_multiturn_override=args.fewshot_as_multiturn,
+            output_path_override=args.output_path,
         )
         sys.argv = lm_eval_argv
         hijack_lm_eval_only()
-        from bitsmoe.evaluation.lm_eval.lm_eval.__main__ import cli_evaluate
+        if lm_eval_argv[lm_eval_argv.index("--model") + 1] == "bitsmoe-vllm":
+            from bitsmoe_vllm.evaluation.cli import prepare_harness
 
-        with patch_quant_config_from_lm_cfg(lm_cfg):
+            prepare_harness()
+            from lm_eval.__main__ import cli_evaluate
+
             cli_evaluate()
+        else:
+            from .harness import prepare_harness
+
+            prepare_harness()
+            from lm_eval.__main__ import cli_evaluate
+
+            with patch_quant_config_from_lm_cfg(lm_cfg):
+                cli_evaluate()
 
     # ppl eval
     ppl_cfg = cfg.get("ppl", {})

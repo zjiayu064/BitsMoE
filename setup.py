@@ -1,7 +1,7 @@
 import os
 
 import torch
-from setuptools import find_packages, setup
+from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 
@@ -22,18 +22,6 @@ CUDA_HOME = get_cuda_home()
 TORCH_LIB_DIR = get_torch_lib_dir()
 RPATH_FLAG = f"-Wl,-rpath,{TORCH_LIB_DIR}"
 
-CUTLASS_DIR = os.path.join(
-    os.path.dirname(__file__),
-    "bitsmoe/algorithms/cpp/cutlass",
-    "include",
-)
-
-CUTLASS_TOOLS_DIR = os.path.join(
-    os.path.dirname(__file__),
-    "bitsmoe/algorithms/cpp/cutlass",
-    "tools/util/include",
-)
-
 # Note: Update these NVCC architecture flags to match your actual target GPU architectures.
 NVCC_ARCH_FLAGS = [
     "-gencode=arch=compute_80,code=sm_80",          # A100
@@ -51,8 +39,7 @@ COMMON_NVCC_FLAGS = [
 
 setup(
     name="bitsmoe",
-    version="0.1.0",
-    packages=find_packages(),
+    version="1.0.0",
     ext_modules=[
         # Bitpack CUDA extension
         CUDAExtension(
@@ -60,24 +47,6 @@ setup(
             sources=[
                 "bitsmoe/quant/bitpack/bitpack_cuda_kernel.cu",
                 "bitsmoe/quant/bitpack/bitpack_cuda_binding.cpp",
-            ],
-            extra_compile_args={
-                "cxx": ["-O3"],
-                "nvcc": COMMON_NVCC_FLAGS,
-            },
-            extra_link_args=[RPATH_FLAG],
-        ),
-
-        # Packed MoE forward CUDA extension (gate/up/down kernels + CUTLASS GEMM)
-        CUDAExtension(
-            name="bitsmoe.algorithms._mlp_forward_cuda",
-            sources=[
-                "bitsmoe/algorithms/cpp/mlp_forward.cu",
-                "bitsmoe/algorithms/cpp/mlp_forward_binding.cpp",
-            ],
-            include_dirs=[
-                CUTLASS_DIR,
-                CUTLASS_TOOLS_DIR,
             ],
             extra_compile_args={
                 "cxx": ["-O3"],

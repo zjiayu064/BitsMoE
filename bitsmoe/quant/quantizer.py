@@ -15,28 +15,20 @@ def svd_decompose(weight, to_cpu=False):
     return u, s, v
 
 def pack_quantized(W_q: Tensor, bits: int):
-    """
-    Bit-pack an int8 quantized tensor using BitPack.
-    """
+    """Bit-pack an int8 quantized tensor using BitPack."""
     return BitPack.pack(W_q, bits)
 
 def unpack_quantized(W_q: Tensor, bits: int, original_size: int):
-    """
-    Unpack a bit-packed quantized integer tensor back into its original dense
-    integer representation.
-    """
+    """Unpack a bit-packed quantized integer tensor back into its original dense integer representation."""
     return BitPack.unpack(W_q, bits, original_size)
 
 def quantize_symmetric(x, bits=8, dim=0, eps=1e-8, iters=50):
-    """
-    Symmetric signed quantization with per-channel scaling.
+    """Symmetric signed quantization with per-channel scaling.
 
     Args:
         x (torch.Tensor): Input tensor of shape [M, N].
         bits (int): Quantization bit-width. bits=1 triggers binary quantization.
-        dim (int): Channel dimension used to compute scale.
-                   dim=0 → per-column quantization (typical for Linear weights)
-                   dim=1 → per-row quantization.
+        dim (int): Channel dimension used to compute scale: dim=0 selects per-column quantization, and dim=1 selects per-row quantization.
         eps (float): Numerical stability epsilon.
 
     Returns:
@@ -85,11 +77,9 @@ def quantize_symmetric(x, bits=8, dim=0, eps=1e-8, iters=50):
 
 
 def quantize_symmetric_block(x, bits=8, dim=0, eps=1e-8):
-    """
-    Symmetric signed quantization for block-ILP path.
+    """Symmetric signed quantization for block-ILP path.
 
-    bits=1 keeps binary quantization.
-    bits>1 always uses absmax scaling on the target channel dimension.
+    bits=1 keeps binary quantization. bits>1 always uses absmax scaling on the target channel dimension.
     """
     if bits <= 0:
         raise ValueError(f"bits must be in (0, 8], got {bits}")
@@ -114,8 +104,7 @@ def quantize_symmetric_block(x, bits=8, dim=0, eps=1e-8):
 
 
 def dequantize_symmetric(x_quant, scale, dim=0):
-    """
-    Symmetric dequantization.
+    """Symmetric dequantization.
 
     Args:
         x_quant (torch.IntTensor): Quantized tensor.
@@ -134,12 +123,9 @@ def estimate_u_low_bit_error_factors(
     bits: Tuple[int, ...] = (2, 3, 4),
     group_size: int = 128,
 ) -> Dict[int, Tensor]:
-    """
-    Estimate per-column quantization error factors for U using the exact same
-    quantization flow as fake_quantize (grouped along rows, per-column channels).
+    """Estimate per-column quantization error factors for U using the exact same quantization flow as fake_quantize (grouped along rows, per-column channels).
 
-    For each bit in ``bits``, returns:
-        err_b[k] = ||U[:, k] - U_q[:, k]||_2^2
+    For each bit in ``bits``, returns: err_b[k] = ||U[:, k] - U_q[:, k]||_2^2
     """
     if U.dim() != 2:
         raise ValueError(f"U must be 2-D, got shape={tuple(U.shape)}")
@@ -168,12 +154,9 @@ def estimate_vh_low_bit_error_factors(
     bits: Tuple[int, ...] = (2, 3, 4),
     group_size: int = 128,
 ) -> Dict[int, Tensor]:
-    """
-    Estimate per-row quantization error factors for Vh with grouped quantization
-    along its feature dimension.
+    """Estimate per-row quantization error factors for Vh with grouped quantization along its feature dimension.
 
-    For each bit in ``bits``, returns:
-        err_b[k] = ||Vh[k, :] - Vh_q[k, :]||_2^2
+    For each bit in ``bits``, returns: err_b[k] = ||Vh[k, :] - Vh_q[k, :]||_2^2
     """
     if Vh.dim() != 2:
         raise ValueError(f"Vh must be 2-D, got shape={tuple(Vh.shape)}")

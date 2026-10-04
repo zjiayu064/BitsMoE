@@ -36,43 +36,15 @@ class BitsMoE_Qwen3MoeSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
 
         hidden_states = hidden_states.view(-1, hidden_dim)
-        token_count = hidden_states.shape[0]
-        self._ensure_runtime_cache(hidden_states.device)
         router_logits = self.gate(hidden_states)
 
         routing_weights_fp32 = F.softmax(router_logits, dim=1, dtype=torch.float)
         routing_weights_fp32, selected_experts = torch.topk(routing_weights_fp32, self.top_k, dim=-1)
         if self.norm_topk_prob:
             routing_weights_fp32 /= routing_weights_fp32.sum(dim=-1, keepdim=True)
-        final_hidden_states = torch.zeros(
-            (token_count, hidden_dim),
-            dtype=hidden_states.dtype,
-            device=hidden_states.device,
+        final_hidden_states = self._routed_forward(
+            hidden_states, selected_experts, routing_weights_fp32.to(hidden_states.dtype).float(),
         )
-
-        h_gate_proj = self._shared_basis_linear(hidden_states, "shared_vh_gate_proj")
-        h_up_proj = self._shared_basis_linear(hidden_states, "shared_vh_up_proj")
-
-        flat_selected_experts = selected_experts.reshape(-1)
-        flat_route_weights_fp32 = routing_weights_fp32.to(hidden_states.dtype).reshape(-1).float()
-        flat_token_ids = self._get_flat_token_ids(token_count, hidden_states.device)
-
-        packed_route = self._build_packed_routing(
-            flat_selected_experts=flat_selected_experts,
-            flat_token_ids=flat_token_ids,
-            flat_route_weights_fp32=flat_route_weights_fp32,
-        )
-        if packed_route is not None:
-            token_indices, expert_offsets_t, route_flat = packed_route
-            packed_hidden = self._packed_forward_grouped(
-                h_gate_proj=h_gate_proj,
-                h_up_proj=h_up_proj,
-                token_indices=token_indices,
-                expert_offsets_t=expert_offsets_t,
-                route_flat=route_flat,
-                token_count=token_count,
-            )
-            final_hidden_states = final_hidden_states + packed_hidden.to(hidden_states.dtype)
 
         final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
         return final_hidden_states, router_logits

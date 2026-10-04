@@ -1,23 +1,22 @@
 lm_eval:
-  enable: false
-  model: hf
+  enable: true
+  model: vllm
   model_args:
     dtype: auto
     pretrained: zjiayu064/DeepSeek-V2-Lite-BitsMoE-2bit
     trust_remote_code: true
+    tensor_parallel_size: 1
+    gpu_memory_utilization: 0.90
+  device: auto
   apply_chat_template: false
   batch_size: auto
   tasks:
-    - mmlu
-    - hellaswag
-    - winogrande
-    - openbookqa
-    - mathqa
+    - gsm8k
   extra_args:
     confirm_run_unsafe_code: true
 
 ppl:
-  enable: true
+  enable: false
   model_name_or_path: zjiayu064/DeepSeek-V2-Lite-BitsMoE-2bit
   use_fa2: true
   trust_remote_code: true

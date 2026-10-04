@@ -82,10 +82,9 @@ def finalize_bitsmoe_load_progress() -> None:
 
 
 class BitsMoE_BaseMoeMLP(nn.Module):
-    """
-    Runtime container for packed MoE expert weights.
+    """Runtime container for packed MoE expert weights.
 
-    Forward compute is intentionally not implemented yet.
+    The enclosing MoE block executes the packed expert kernels.
     """
 
     _MTYPE_TO_TAG = {
@@ -173,9 +172,7 @@ class BitsMoE_BaseMoeMLP(nn.Module):
         return int(t.detach().to(device="cpu", dtype=torch.int64).reshape(()))
 
     def _register_or_replace_buffer(self, name: str, tensor: torch.Tensor) -> None:
-        # Fast-path: when the buffer already exists, update the internal buffer
-        # slot directly to avoid costly del/register cycles for hundreds of
-        # thousands of tensors during large-MoE checkpoint loading.
+        # Update the registered buffer slot directly when it exists.
         if name in self._buffers:
             self._buffers[name] = tensor
             return
@@ -342,9 +339,7 @@ class BitsMoE_BaseMoeMLP(nn.Module):
         unexpected_keys,
         error_msgs,
     ):
-        # HF with assign=True loads one tensor at a time; pre-shape runtime buffers
-        # to the incoming tensor to avoid size mismatch on initially empty buffers.
-        # For very large MoE checkpoints, this function is on the hot path.
+        # Shape each runtime buffer to match the incoming tensor for HF assign=True loading.
         assign_to_params_buffers = bool(local_metadata.get("assign_to_params_buffers", False))
         has_local_tensor = False
         consumed_keys = []
@@ -374,13 +369,11 @@ class BitsMoE_BaseMoeMLP(nn.Module):
             self._load_progress_marked = True
             advance_bitsmoe_load_progress(1, source="internal")
 
-        # We have already consumed and bound all local runtime keys explicitly.
-        # Removing consumed entries avoids extra work in parent recursive loaders.
+        # Remove locally loaded keys before the parent recursive loader processes the state dictionary.
         for k in consumed_keys:
             state_dict.pop(k, None)
 
-        # Keep compatibility for paths where this module may eventually include
-        # additional parameters/buffers.
+        # Load any remaining parameters and buffers through the parent module.
         super()._load_from_state_dict(
             state_dict=state_dict,
             prefix=prefix,
@@ -398,7 +391,7 @@ class BitsMoE_BaseMoeMLP(nn.Module):
         )
         self.skip_expert = not self.is_bitsmoe_packed and self._has_zero_projection()
 
-    # Backward-compatible entrypoint used by old loader paths.
+    # Loader entrypoint for runtime packed weights.
     def load_quantized_weight_from_state(
         self,
         state_dict: Dict[str, torch.Tensor],
@@ -413,6 +406,5 @@ class BitsMoE_BaseMoeMLP(nn.Module):
         h_up_proj: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         raise NotImplementedError(
-            "BitsMoE_BaseMoeMLP forward is intentionally not implemented in this stage. "
-            "This module currently only stores packed payload/metadata."
+            "Packed experts are evaluated by their parent MoE block."
         )

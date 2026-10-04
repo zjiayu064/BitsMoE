@@ -67,12 +67,9 @@ class MultiDatasetLoader(Dataset):
     def _load_dataset(self, dataset_config: Dict, cache_dir: Optional[str]):
         """Load a single dataset based on its configuration.
 
-        If ``data_files`` is specified in dataset_config, the dataset is loaded
-        directly as JSON (bypassing any hub dataset script) with streaming=False,
-        making sampling fully reproducible.  The path may be:
+        If ``data_files`` is specified in dataset_config, the dataset is loaded directly as JSON (bypassing any hub dataset script) with streaming=False, making sampling fully reproducible.  The path may be:
           - An absolute local path  (/data/c4/en/c4-train.00001-of-01024.json.gz)
-          - A relative hub path     (en/c4-train.00001-of-01024.json.gz)
-            → resolved to hf://datasets/<name>/<path>
+          - A relative hub path (en/c4-train.00001-of-01024.json.gz), resolved to hf://datasets/<name>/<path>
           - A full URL / hf:// URI  (used as-is)
 
         Otherwise falls back to streaming for datasets in STREAMING_DATASETS.
@@ -81,8 +78,7 @@ class MultiDatasetLoader(Dataset):
         name = dataset_config["name"]
 
         if data_files is not None:
-            # Resolve relative hub paths to an hf:// URI so that datasets loads
-            # only the specified shard, bypassing the custom dataset script.
+            # Resolve relative hub paths to an hf:// URI so that datasets loads only the specified shard, bypassing the custom dataset script.
             if not (data_files.startswith("/") or "://" in data_files):
                 data_files = f"hf://datasets/{name}/{data_files}"
             try:

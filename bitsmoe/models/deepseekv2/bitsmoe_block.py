@@ -68,36 +68,10 @@ class BitsMoE_DeepSeekSparseMoeBlock(BitsMoE_BaseSparseMoeBlock):
         topk_idx, topk_weight, aux_loss = self.gate(hidden_states)
 
         hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
-        token_count = hidden_states.shape[0]
-        self._ensure_runtime_cache(hidden_states.device)
 
         topk_idx = topk_idx.reshape(-1, topk_idx.shape[-1])
         topk_weight_fp32 = topk_weight.reshape(-1, topk_weight.shape[-1]).to(torch.float32)
-        h_gate_proj = self._shared_basis_linear(hidden_states, "shared_vh_gate_proj")
-        h_up_proj = self._shared_basis_linear(hidden_states, "shared_vh_up_proj")
-
-        final_hidden_states = torch.zeros_like(hidden_states)
-
-        flat_selected_experts = topk_idx.reshape(-1)
-        flat_route_weights_fp32 = topk_weight_fp32.reshape(-1)
-        flat_token_ids = self._get_flat_token_ids(token_count, hidden_states.device)
-
-        packed_route = self._build_packed_routing(
-            flat_selected_experts=flat_selected_experts,
-            flat_token_ids=flat_token_ids,
-            flat_route_weights_fp32=flat_route_weights_fp32,
-        )
-        if packed_route is not None:
-            token_indices, expert_offsets_t, route_flat = packed_route
-            packed_hidden = self._packed_forward_grouped(
-                h_gate_proj=h_gate_proj,
-                h_up_proj=h_up_proj,
-                token_indices=token_indices,
-                expert_offsets_t=expert_offsets_t,
-                route_flat=route_flat,
-                token_count=token_count,
-            )
-            final_hidden_states = final_hidden_states + packed_hidden.to(hidden_states.dtype)
+        final_hidden_states = self._routed_forward(hidden_states, topk_idx, topk_weight_fp32)
 
         y = final_hidden_states.reshape(*orig_shape)
         if getattr(self.config, "n_shared_experts", None) is not None and hasattr(self, "shared_experts"):

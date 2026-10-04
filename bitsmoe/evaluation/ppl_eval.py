@@ -66,7 +66,7 @@ def get_wikitext2(max_samples=1024):
         "wikitext-2-raw-v1",
         split="test",
     )
-    # Keep original order for comparable PPL.
+    # Read samples in dataset order for reproducible PPL evaluation.
     n = min(max_samples, len(data))
     return [data[i] for i in range(n)]
 
@@ -83,10 +83,7 @@ def get_c4(max_samples=1024):
 
 
 def process_data(samples, tokenizer, seq_len: int, field_name: str):
-    """
-    Prepare token blocks (kept for backward compatibility) and store full token stream
-    for HF-recommended strided sliding-window PPL.
-    """
+    """Prepare fixed-length token blocks and the full token stream for strided sliding-window PPL."""
     # Hard reset fast tokenizer internal state.
     if hasattr(tokenizer, "_tokenizer"):
         try:
@@ -120,7 +117,7 @@ def process_data(samples, tokenizer, seq_len: int, field_name: str):
     )
     token_ids_1d = encodings.input_ids[0]  # [N]
 
-    # Keep your original fixed blocks (may be used elsewhere).
+    # Build fixed-length token blocks and retain the full encoding for evaluation.
     num_blocks = token_ids_1d.numel() // seq_len
     token_ids_2d = token_ids_1d[: num_blocks * seq_len].contiguous().view(num_blocks, seq_len)
 
@@ -154,10 +151,7 @@ def compute_ppl_hf_strided(
     max_length: int,
     stride: int = 512,
 ):
-    """
-    HF-recommended strided sliding-window PPL.
-    Only tokens newly introduced by each stride contribute to the loss.
-    """
+    """HF-recommended strided sliding-window PPL. Only tokens newly introduced by each stride contribute to the loss."""
     model.eval()
 
     # Clamp to model context limit if present.

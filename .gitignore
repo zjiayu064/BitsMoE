@@ -1,14 +1,40 @@
-hf_cache/
-checkpoints/
+# Python and build artifacts
 __pycache__/
-*.pyc
-.codex
-data/
-logs/
-*.egg-info
+*.py[cod]
+*.egg-info/
 *.so
-*.log
-.tmp/
-CLAUDE.md
+build/
+dist/
 .venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Local data and runs
+hf_cache/
+checkpoints/
+data/
+logs/
+*.log
+.tmp/
+
+# Local documentation and validation
+/docs/
+/tests/
+/benchmarks/
+*.md
+!/README.md
+*.rst
+*.ipynb
+/scripts/benchmark_*.py
+/scripts/debug_*.py
+/scripts/eval.sh
+
+# Local tooling
+.codex/
+.agents/
+.aws/
+.idea/
+.vscode/
+.DS_Store

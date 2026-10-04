@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <b><a href="#news">🔥 News</a></b> •
   <b><a href="#overview">🔍 Overview</a></b> •
   <b><a href="#preparation">🧩 Preparation</a></b> •
   <b><a href="#environment">🛠️ Environment</a></b> •
@@ -21,6 +22,14 @@
 </p>
 
 ---
+
+<a id="news"></a>
+
+## 🔥 News
+
+- **[2026/10/04]** 🎉 BitsMoE now supports [vLLM inference](#vllm-inference), including multi-GPU inference, evaluation, and OpenAI-compatible serving.
+- **[2026/10/04]** 🚀 We released a [1.6-bit checkpoint](#models) of Qwen/Qwen3-235B-A22B-Instruct-2507.
+- **[2026/09/27]** 🚀 We released BitsMoE, along with its inference code and [2-bit model checkpoints](#models).
 
 <a id="overview"></a>
 
@@ -59,6 +68,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 - **GCC / G++ ≥ 12.0**
 - Tested and recommended: **GCC/G++ 14.2.0**
 - **Python 3.12** is recommended
+- **vLLM backend** requires `vllm==0.11.0`
 - Other compiler/CUDA/Python combinations are currently not tested
 
 <a id="environment"></a>
@@ -71,6 +81,7 @@ Choose **one** method below.
 
 ```bash
 bash scripts/install_env.sh
+conda activate bitsmoe
 ```
 
 ### Manual install:
@@ -102,24 +113,82 @@ Stream a short response from the Qwen3-30B-A3B BitsMoE checkpoint:
 bitsmoe demo
 ```
 
-Run evaluation from YAML config:
+### vLLM inference
+
+The adapter requires `vllm==0.11.0` and detects the model architecture from the checkpoint:
+
+```python
+from bitsmoe_vllm import LLM
+from vllm import SamplingParams
+
+if __name__ == "__main__":
+    llm = LLM("/path/to/checkpoint")
+    outputs = llm.generate(
+        ["The capital of France is"],
+        SamplingParams(temperature=0, max_tokens=64),
+    )
+    print(outputs[0].outputs[0].text)
+```
+
+For multiple GPUs, pass `tensor_parallel_size` and set the memory budget as needed:
+
+```python
+llm = LLM(
+    "/path/to/checkpoint",
+    tensor_parallel_size=2,
+    gpu_memory_utilization=0.90,
+)
+```
+
+To start an OpenAI-compatible server:
 
 ```bash
-bitsmoe eval --config configs/deepseekv2/eval.yaml
-bitsmoe eval --config configs/qwen3moe/eval.yaml
-bitsmoe eval --config configs/qwen3next/eval.yaml
+bitsmoe-vllm serve /path/to/checkpoint --tensor-parallel-size 2
 ```
+
+### vLLM evaluation
+
+Use the same `bitsmoe eval` command and select `vllm` in YAML:
+
+```yaml
+lm_eval:
+  enable: true
+  model: vllm
+  model_args:
+    pretrained: /path/to/checkpoint
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.90
+  batch_size: auto
+  tasks:
+    - gsm8k
+ppl:
+  enable: false
+```
+
+```bash
+bitsmoe eval --config /path/to/eval.yaml
+```
+
+To use the provided Qwen3-30B-A3B-Base-BitsMoE-2bit configuration with a local checkpoint:
+
+```bash
+bitsmoe eval --config configs/qwen3moe/eval.yaml \
+    --model_path /path/to/checkpoint --tasks gsm8k
+```
+
+`--config` is required. Set `lm_eval.model` to `hf` to use Transformers. The separate `ppl` section runs Transformers perplexity evaluation, regardless of the lm-eval backend.
 
 <a id="models"></a>
 
 ## 📦 Models
 
 
-| Base Model | Precision | Hugging Face Repo | Access Link |
+| Base Model | Experts-Precision | Hugging Face Repo | Access Link |
 | --- | --- | --- | --- |
-| deepseek-ai/DeepSeek-V2-Lite | 2-bit | `zjiayu064/DeepSeek-V2-Lite-BitsMoE-2bit` | [🤗 DeepSeek-V2-Lite-BitsMoE-2bit](https://huggingface.co/zjiayu064/DeepSeek-V2-Lite-BitsMoE-2bit) |
-| Qwen/Qwen3-30B-A3B-Base | 2-bit | `zjiayu064/Qwen3-30B-A3B-Base-BitsMoE-2bit` | [🤗 Qwen3-30B-A3B-Base-BitsMoE-2bit](https://huggingface.co/zjiayu064/Qwen3-30B-A3B-Base-BitsMoE-2bit) |
-| Qwen/Qwen3-Next-80B-A3B-Instruct | 2-bit | `zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit` | [🤗 Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit](https://huggingface.co/zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit) |
+| deepseek-ai/DeepSeek-V2-Lite | 2-bit | `zjiayu064/DeepSeek-V2-Lite-BitsMoE-2bit` | [🤗 zjiayu064/DeepSeek-V2-Lite-BitsMoE-2bit](https://huggingface.co/zjiayu064/DeepSeek-V2-Lite-BitsMoE-2bit) |
+| Qwen/Qwen3-30B-A3B-Base | 2-bit | `zjiayu064/Qwen3-30B-A3B-Base-BitsMoE-2bit` | [🤗 zjiayu064/Qwen3-30B-A3B-Base-BitsMoE-2bit](https://huggingface.co/zjiayu064/Qwen3-30B-A3B-Base-BitsMoE-2bit) |
+| Qwen/Qwen3-Next-80B-A3B-Instruct | 2-bit | `zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit` | [🤗 zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit](https://huggingface.co/zjiayu064/Qwen3-Next-80B-A3B-Instruct-BitsMoE-2bit) |
+| Qwen/Qwen3-235B-A22B-Instruct-2507 | 1.6-bit | `zjiayu064/Qwen3-235B-A22B-Instruct-2507-BitsMoE-1.6bit` | [🤗 zjiayu064/Qwen3-235B-A22B-Instruct-2507-BitsMoE-1.6bit](https://huggingface.co/zjiayu064/Qwen3-235B-A22B-Instruct-2507-BitsMoE-1.6bit) |
 
 <a id="evaluation-config"></a>
 
@@ -131,24 +200,20 @@ The main runtime configuration is in:
 - `configs/qwen3moe/eval.yaml`
 - `configs/qwen3next/eval.yaml`
 
+The configurations provide examples using released Hugging Face checkpoints. `configs/qwen3moe/eval.yaml` is a Qwen3-30B-A3B-Base example; set `--model_path` to the checkpoint path or model ID you want to evaluate. Adjust `tensor_parallel_size`, the memory budget, and the chat-template setting for your model and available GPUs.
+
 These fields follow the usage of [EleutherAI/lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness):
 
-- `lm_eval.model`: backend type (for example `hf`)
+- `lm_eval.model`: backend type (`vllm` or `hf`)
 - `lm_eval.model_args`: model constructor arguments (for example `pretrained`, `dtype`)
 - `lm_eval.tasks`: benchmark task list
 - `lm_eval.apply_chat_template`: whether to apply chat template
 - `lm_eval.batch_size`: batch size or `auto`
 - `lm_eval.extra_args`: extra `lm-eval` flags
-- `ppl`: perplexity evaluation settings
+- `ppl`: Transformers perplexity evaluation settings
 - `runtime.seed`: random seed
 
-Current tasks:
-
-- `mmlu`
-- `hellaswag`
-- `winogrande`
-- `openbookqa`
-- `mathqa`
+Select tasks supported by the installed lm-evaluation-harness, such as `gsm8k`, `mmlu`, `hellaswag`, `winogrande`, `openbookqa`, or `mathqa`.
 
 <a id="quantization"></a>
 
@@ -156,7 +221,7 @@ Current tasks:
 
 This repository is currently **inference-only**.
 
-- Released now: runtime kernels, model patching logic, and 2-bit checkpoints for evaluation/inference.
+- Released now: runtime kernels, model patching logic, and 2-bit and 1.6-bit checkpoints for evaluation/inference.
 - Not released yet: end-to-end quantization/preprocessing pipeline.
 
 Planned open-source items:
@@ -179,13 +244,13 @@ Status: **Coming soon**.
 If you find our work useful, please consider citing:
 
 ```bibtex
-@misc{zhao2026bitsmoe,
-      title={{BitsMoE}: Efficient Spectral Energy-Guided Bit Allocation for {MoE} {LLM} Quantization}, 
+@misc{zhao2026bitsmoecostawarebitallocation,
+      title={BitsMoE: Cost-Aware Bit Allocation in Spectral Space for MoE LLM Quantization},
       author={Jiayu Zhao and Zihan Teng and Minhao Fan and Tianrui Ma and Wentao Ren and Song Chen and Weichen Liu},
       year={2026},
       eprint={2606.00079},
       archivePrefix={arXiv},
       primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2606.00079}
+      url={https://arxiv.org/abs/2606.00079},
 }
 ```

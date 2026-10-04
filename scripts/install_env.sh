@@ -51,7 +51,7 @@ pushd bitsmoe/evaluation/lm_eval >/dev/null
 uv pip install -e .
 popd >/dev/null
 
-# 6) BitsMoE-arxiv itself
+# 6) BitsMoE
 uv pip install -e . --no-build-isolation
 
 echo "Environment ready. Activate with: conda activate ${ENV_NAME}"

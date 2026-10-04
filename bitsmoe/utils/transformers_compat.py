@@ -7,19 +7,7 @@ LOGGER = setup_logger(__name__)
 
 
 def patch_transformers_cache_compat() -> None:
-    """
-    Bridge cache API differences across transformers versions.
-
-    Older model implementations (including many trust_remote_code checkpoints)
-    may access:
-      - cache.seen_tokens
-      - cache.get_max_length()
-      - cache.get_usable_length(...)
-
-    Newer transformers cache classes expose:
-      - cache.get_seq_length()
-      - cache.get_max_cache_shape()
-    """
+    """Provide cache.seen_tokens, cache.get_max_length(), and cache.get_usable_length() using the cache sequence-length and capacity APIs when these members are absent."""
     try:
         from transformers.cache_utils import Cache
     except Exception as exc:
@@ -39,7 +27,7 @@ def patch_transformers_cache_compat() -> None:
                 return 0
 
         def _set_seen_tokens(self, value) -> None:
-            # Keep backward-compatible mutability for code that sets this field.
+            # Allow callers to assign the seen-token count.
             try:
                 self._seen_tokens_compat = int(value)
             except Exception:
@@ -70,7 +58,7 @@ def patch_transformers_cache_compat() -> None:
 
     if not hasattr(Cache, "get_usable_length"):
         def _get_usable_length(self, new_seq_length: int = 0, *args, **kwargs) -> int:
-            # Legacy signature: get_usable_length(new_seq_length, layer_idx=None)
+            # Accept layer_idx as a positional argument or keyword.
             layer_idx = kwargs.get("layer_idx", None)
             if layer_idx is None and len(args) > 0:
                 layer_idx = args[0]
